@@ -1,0 +1,14 @@
+services:
+  anki-sync-server:
+    image: ghcr.io/GeekSquirrel/anki-sync-server-rust:latest
+    container_name: anki-sync-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - anki_sync_server_data:/anki_data
+
+volumes:
+  anki_sync_server_data:

@@ -1,0 +1,66 @@
+name: Publish Anki sync server image
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve latest Anki release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_name=$(gh api repos/ankitects/anki/releases/latest --jq .tag_name)
+          version=${tag_name#v}
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upstream Rust version
+        id: rust
+        run: |
+          rust_version=$(curl -fsSL "https://raw.githubusercontent.com/ankitects/anki/${ANKI_TAG}/rust-toolchain.toml" | sed -n 's/^channel = "\([^"]*\)"$/\1/p')
+          if [ -z "$rust_version" ]; then
+            echo "could not determine Rust channel from rust-toolchain.toml" >&2
+            exit 1
+          fi
+          echo "version=$rust_version" >> "$GITHUB_OUTPUT"
+        env:
+          ANKI_TAG: ${{ steps.release.outputs.tag_name }}
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Check whether the image already exists
+        id: check
+        run: |
+          image="ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}"
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg RUST_VERSION=${{ steps.rust.outputs.version }} \
+            --build-arg ANKI_VERSION=${{ steps.release.outputs.version }} \
+            --tag ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }} \
+            --tag ghcr.io/${{ github.repository }}:latest \
+            --push \
+            .
