@@ -33,6 +33,13 @@ jobs:
           image_repo=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           echo "value=$image_repo" >> "$GITHUB_OUTPUT"
 
+      - name: Restore last known Anki version
+        id: version_cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/anki-version.txt
+          key: anki-version-cache
+
       - name: Resolve upstream Rust version
         id: rust
         run: |
@@ -45,10 +52,33 @@ jobs:
         env:
           ANKI_TAG: ${{ steps.release.outputs.tag_name }}
 
+      - name: Check whether Anki version changed
+        id: version_change
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          if [ -f .cache/anki-version.txt ]; then
+            last_version=$(cat .cache/anki-version.txt)
+          else
+            last_version=""
+          fi
+
+          echo "last_version=$last_version" >> "$GITHUB_OUTPUT"
+          if [ "$version" = "$last_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Anki version unchanged: $version"
+          else
+            mkdir -p .cache
+            printf '%s\n' "$version" > .cache/anki-version.txt
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Anki version changed: $version"
+          fi
+
       - name: Log in to GHCR
+        if: steps.version_change.outputs.changed == 'true'
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Check whether the image already exists
+        if: steps.version_change.outputs.changed == 'true'
         id: check
         run: |
           image="ghcr.io/${{ steps.image_repo.outputs.value }}:${{ steps.release.outputs.version }}"
@@ -58,18 +88,26 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Skip build because no new upstream version or image already exists
+        if: steps.version_change.outputs.changed != 'true' || steps.check.outputs.exists == 'true'
+        run: echo "Skipping image build because no new upstream Anki release was detected or the target image already exists."
+
       - name: Set up Docker Buildx
-        if: steps.check.outputs.exists != 'true'
+        if: steps.version_change.outputs.changed == 'true' && steps.check.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Build and push image
-        if: steps.check.outputs.exists != 'true'
-        run: |
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --build-arg RUST_VERSION=${{ steps.rust.outputs.version }} \
-            --build-arg ANKI_VERSION=${{ steps.release.outputs.version }} \
-            --tag ghcr.io/${{ steps.image_repo.outputs.value }}:${{ steps.release.outputs.version }} \
-            --tag ghcr.io/${{ steps.image_repo.outputs.value }}:latest \
-            --push \
-            .
+        if: steps.version_change.outputs.changed == 'true' && steps.check.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            RUST_VERSION=${{ steps.rust.outputs.version }}
+            ANKI_VERSION=${{ steps.release.outputs.version }}
+          tags: |
+            ghcr.io/${{ steps.image_repo.outputs.value }}:${{ steps.release.outputs.version }}
+            ghcr.io/${{ steps.image_repo.outputs.value }}:latest
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
