@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve latest Anki release
         id: release
@@ -35,7 +35,7 @@ jobs:
 
       - name: Restore last known Anki version
         id: version_cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: .cache/anki-version.txt
           key: anki-version-cache
@@ -98,7 +98,7 @@ jobs:
 
       - name: Build and push image
         if: steps.version_change.outputs.changed == 'true' && steps.check.outputs.exists != 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v6.4.0
         with:
           context: .
           platforms: linux/amd64
