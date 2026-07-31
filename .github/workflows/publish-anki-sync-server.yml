@@ -24,6 +24,12 @@ jobs:
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve image repository
+        id: image_repo
+        run: |
+          image_repo=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "value=$image_repo" >> "$GITHUB_OUTPUT"
+
       - name: Resolve upstream Rust version
         id: rust
         run: |
@@ -42,7 +48,7 @@ jobs:
       - name: Check whether the image already exists
         id: check
         run: |
-          image="ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}"
+          image="ghcr.io/${{ steps.image_repo.outputs.value }}:${{ steps.release.outputs.version }}"
           if docker manifest inspect "$image" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
@@ -60,7 +66,7 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --build-arg RUST_VERSION=${{ steps.rust.outputs.version }} \
             --build-arg ANKI_VERSION=${{ steps.release.outputs.version }} \
-            --tag ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }} \
-            --tag ghcr.io/${{ github.repository }}:latest \
+            --tag ghcr.io/${{ steps.image_repo.outputs.value }}:${{ steps.release.outputs.version }} \
+            --tag ghcr.io/${{ steps.image_repo.outputs.value }}:latest \
             --push \
             .
