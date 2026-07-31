@@ -1,6 +1,6 @@
 services:
   anki-sync-server:
-    image: ghcr.io/GeekSquirrel/anki-sync-server-rust:latest
+    image: ghcr.io/geeksquirrel/anki-sync-server-rust:latest
     container_name: anki-sync-server
     restart: unless-stopped
     env_file:
